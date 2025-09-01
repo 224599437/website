@@ -71,6 +71,9 @@ SESSION_COOKIE_SECURE = False
 RECAPTCHA_SITE_KEY = '6LfAVkYrAAAAADQTOddD3d6Ly-LWGDt-O5zpOkao'
 RECAPTCHA_SECRET_KEY = '6LfAVkYrAAAAAHmiKUs--9QR_U70BlGPU6yP522i'
 
+# Google OAuth Client (set via environment in production)
+GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '')
+
 # ---------------- Secure Session Cookie Settings ----------------
 # These settings ensure cookies are securely transmitted over HTTPS and protected from JS and CSRF attacks
 SESSION_COOKIE_SECURE = not DEBUG           # Only allow HTTPS cookies in production
@@ -176,6 +179,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 'home.context_processors.dynamic_page_title',
                 'home.context_processors.recaptcha_site_key',
+                'home.context_processors.google_client_id',
 
 
             ],
