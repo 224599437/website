@@ -70,6 +70,12 @@
                             </div>
                         </form>
 
+                        <div id="microsoft-error" class="d-none alert alert-danger mt-3" role="alert"></div>
+                        <div class="d-grid mt-3">
+            <button id="microsoftSignInBtn" type="button" class="btn btn-warning">
+                Sign in with Microsoft
+            </button>
+                        </div>
                         <div class="text-center mt-3">
                             <a href="{% url 'passkey_login' %}" class="btn btn-secondary">Login with Passkey</a>
                         </div>
@@ -90,6 +96,7 @@
 </main>
 
 <script src="https://www.google.com/recaptcha/api.js?render={{ RECAPTCHA_SITE_KEY }}"></script>
+<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
 
 <!-- Add JavaScript for password toggle -->
 <script>
@@ -114,6 +121,201 @@ grecaptcha.ready(function () {
             console.log("reCAPTCHA token generated onload:", token);
             document.getElementById('g-recaptcha-response').value = token;
         });
+    });
+
+// MICROSOFT AUTHENTICATION WITH MSAL.js
+console.log('Microsoft authentication script loaded');
+
+// Microsoft authentication function
+function authenticateWithMicrosoft() {
+    console.log('Starting Microsoft authentication...');
+    
+    // Check if MSAL is available
+    if (typeof msal === 'undefined') {
+        console.error('MSAL.js library not loaded');
+        showError('Microsoft authentication library not available. Please refresh the page.');
+        return;
+    }
+    
+    // Check if client ID is configured
+    if (!window.MICROSOFT_CLIENT_ID) {
+        console.error('Microsoft Client ID not configured');
+        showError('Microsoft authentication not configured. Please contact administrator.');
+        return;
+    }
+    
+    try {
+        // MSAL configuration for Deakin University
+        const msalConfig = {
+            auth: {
+                clientId: window.MICROSOFT_CLIENT_ID,
+                authority: `https://login.microsoftonline.com/${window.MICROSOFT_TENANT_ID || 'deakin.edu.au'}`,
+                redirectUri: window.location.origin + window.location.pathname,
+                postLogoutRedirectUri: window.location.origin + window.location.pathname
+            },
+            cache: {
+                cacheLocation: 'sessionStorage',
+                storeAuthStateInCookie: false
+            }
+        };
+        
+        console.log('MSAL Config:', msalConfig);
+        
+        const msalInstance = new msal.PublicClientApplication(msalConfig);
+        
+        // Login request configuration
+        const loginRequest = {
+            scopes: ['User.Read', 'email', 'profile'],
+            prompt: 'select_account',
+            extraQueryParameters: {
+                domain_hint: window.DEAKIN_DOMAIN || 'deakin.edu.au'
+            }
+        };
+        
+        console.log('Starting Microsoft login popup...');
+        
+        // Show loading state
+        setLoading(true);
+        showError(''); // Clear any previous errors
+        
+        // Start authentication
+        msalInstance.loginPopup(loginRequest)
+            .then(function(response) {
+                console.log('Microsoft authentication successful:', response);
+                setLoading(false);
+                handleMicrosoftResponse(response.accessToken);
+            })
+            .catch(function(error) {
+                console.error('Microsoft authentication failed:', error);
+                setLoading(false);
+                
+                if (error.errorCode === 'user_cancelled') {
+                    showError('Sign-in was cancelled.');
+                } else if (error.errorCode === 'popup_window_error') {
+                    showError('Popup window was blocked. Please allow popups and try again.');
+                } else {
+                    showError('Microsoft authentication failed: ' + (error.message || 'Unknown error'));
+                }
+            });
+            
+    } catch (error) {
+        console.error('Error initializing Microsoft authentication:', error);
+        showError('Failed to initialize Microsoft authentication.');
+        setLoading(false);
+    }
+}
+
+// Handle Microsoft authentication response
+function handleMicrosoftResponse(accessToken) {
+    console.log('Handling Microsoft response...');
+        setLoading(true);
+        
+    // Set timeout for the authentication process
+        var authTimeout = setTimeout(function() {
+            showError('Authentication timeout. Please try again.');
+            setLoading(false);
+    }, 15000);
+
+    // Send token to backend for verification
+    fetch('{% url "microsoft_login" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': (document.querySelector('[name=csrfmiddlewaretoken]') && document.querySelector('[name=csrfmiddlewaretoken]').value) || ''
+            },
+        body: JSON.stringify({ access_token: accessToken })
+        })
+        .then(function(res) {
+            clearTimeout(authTimeout);
+            return res.json();
+        })
+        .then(function(data) {
+            if (data.redirect_url) {
+            console.log('Redirecting to:', data.redirect_url);
+                window.location.href = data.redirect_url;
+        } else {
+            // Handle Deakin-specific error messages
+            if (data.error && data.error.includes('@deakin.edu.au')) {
+                showError('Access restricted to Deakin University students and staff. Please use your Deakin Microsoft account.');
+            } else {
+                showError(data.error || 'Microsoft sign-in failed.');
+            }
+            setLoading(false);
+            }
+        })
+        .catch(function(e) {
+            clearTimeout(authTimeout);
+        console.error('Microsoft authentication error:', e);
+        showError('Network error during Microsoft sign-in.');
+            setLoading(false);
+        });
+    }
+
+// Utility functions
+function setLoading(isLoading) {
+    var btn = document.getElementById('microsoftSignInBtn');
+    if (!btn) return;
+    
+    btn.disabled = isLoading;
+    if (isLoading) {
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Signing in...';
+    } else {
+        btn.innerHTML = 'Sign in with Microsoft';
+    }
+}
+
+function showError(message) {
+    var holder = document.getElementById('microsoft-error');
+    if (!holder) return;
+    
+    holder.textContent = message || 'Microsoft sign-in failed. Please try again.';
+    holder.classList.remove('d-none');
+    
+    setTimeout(function() {
+        holder.classList.add('d-none');
+        holder.textContent = '';
+    }, 6000);
+}
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing Microsoft authentication...');
+    
+    var btn = document.getElementById('microsoftSignInBtn');
+    if (btn) {
+        console.log('Microsoft button found, ready for authentication');
+        
+        // Add click event listener
+        btn.addEventListener('click', function(event) {
+            console.log('=== MICROSOFT BUTTON CLICKED ===');
+            event.preventDefault();
+            
+            // Redirect to Microsoft OAuth with proper callback URL
+            console.log('Redirecting to Microsoft login...');
+            const clientId = window.MICROSOFT_CLIENT_ID || 'test';
+            const redirectUri = encodeURIComponent(window.location.origin + '/accounts/microsoft-callback/');
+            const scope = encodeURIComponent('openid profile email User.Read');
+            const state = encodeURIComponent('microsoft_login_' + Date.now());
+            
+            const microsoftAuthUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?` +
+                `client_id=${clientId}&` +
+                `response_type=code&` +
+                `redirect_uri=${redirectUri}&` +
+                `scope=${scope}&` +
+                `state=${state}&` +
+                `response_mode=query`;
+            
+            console.log('Microsoft Auth URL:', microsoftAuthUrl);
+            window.location.href = microsoftAuthUrl;
+            
+            // Test 2: Also try the function (commented out for now)
+            // authenticateWithMicrosoft();
+        });
+        
+        console.log('Microsoft authentication ready');
+    } else {
+        console.error('Microsoft button not found');
+    }
     });
 </script>
 
